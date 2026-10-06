@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard Smart Inventory Rak 1</title>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js" type="text/javascript"></script>
+
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: #f4f6f9;
+      margin: 0;
+      padding: 30px 15px;
+      display: flex;
+      justify-content: center;
+    }
+    .card {
+      background: #ffffff;
+      padding: 25px;
+      border-radius: 12px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+      width: 100%;
+      max-width: 420px;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 2px solid #eef0f2;
+      padding-bottom: 15px;
+      margin-bottom: 20px;
+    }
+    .header h2 { margin: 0; font-size: 20px; color: #2c3e50; }
+    
+    .badge-conn {
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 12px;
+      font-weight: bold;
+    }
+    .connected { background: #d4edda; color: #155724; }
+    .disconnected { background: #f8d7da; color: #721c24; }
+
+    .status-box {
+      text-align: center;
+      padding: 15px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      font-weight: bold;
+      font-size: 22px;
+      letter-spacing: 1px;
+      background: #e2e3e5;
+      color: #383d41;
+      transition: all 0.3s ease;
+    }
+    .status-PENUH { background: #28a745; color: white; }
+    .status-SEDANG { background: #17a2b8; color: white; }
+    .status-MENIPIS { background: #ffc107; color: #212529; }
+    .status-HABIS { background: #dc3545; color: white; }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+    .metric-card {
+      background: #f8f9fa;
+      padding: 15px;
+      border-radius: 8px;
+      border: 1px solid #e9ecef;
+    }
+    .metric-label { font-size: 12px; color: #6c757d; margin-bottom: 5px; }
+    .metric-value { font-size: 26px; font-weight: bold; color: #2c3e50; }
+    .metric-unit { font-size: 14px; font-weight: normal; color: #6c757d; }
+
+    .time-info {
+      font-size: 12px;
+      color: #6c757d;
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    
+    .raw-header { font-size: 12px; font-weight: bold; color: #6c757d; margin-bottom: 5px; }
+    .raw-data {
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 11px;
+      background: #1e1e1e;
+      color: #00ff66;
+      padding: 12px;
+      border-radius: 6px;
+      word-break: break-all;
+      max-height: 120px;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <div class="header">
+      <h2>Rak 1 - Smart Inventory</h2>
+      <span id="conn-status" class="badge-conn disconnected">Terputus</span>
+    </div>
+
+
+    <div id="status-stok" class="status-box">MENUNGGU DATA...</div>
+
+  
+    <div class="metrics">
+      <div class="metric-card">
+        <div class="metric-label">Sisa Stok</div>
+        <div class="metric-value"><span id="val-stok">--</span> <span class="metric-unit">%</span></div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Jarak Sensor</div>
+        <div class="metric-value"><span id="val-jarak">--</span> <span class="metric-unit">cm</span></div>
+      </div>
+    </div>
+
+    <div id="val-time" class="time-info">Waktu Update: -</div>
+
+    <div class="raw-header">Data Payload JSON:</div>
+    <div id="raw-json" class="raw-data">Menunggu data dari Wokwi...</div>
+  </div>
+
+  <script>
+   
+    const broker = "broker.hivemq.com";
+    const port = 8000; 
+    const topic = "gudang/stok/rak1";
+    const clientId = "web_rak1_" + Math.random().toString(16).substr(2, 8);
+
+    const client = new Paho.MQTT.Client(broker, port, clientId);
+
+    client.onConnectionLost = onConnectionLost;
+    client.onMessageArrived = onMessageArrived;
+
+
+    client.connect({
+      onSuccess: onConnect,
+      onFailure: function (err) {
+        document.getElementById("conn-status").innerText = "Gagal Konek";
+      }
+    });
+
+    function onConnect() {
+      const conn = document.getElementById("conn-status");
+      conn.innerText = "Terhubung";
+      conn.className = "badge-conn connected";
+      client.subscribe(topic);
+    }
+
+    function onConnectionLost() {
+      const conn = document.getElementById("conn-status");
+      conn.innerText = "Terputus";
+      conn.className = "badge-conn disconnected";
+    }
+
+    
+    function onMessageArrived(message) {
+      const payload = message.payloadString;
+      document.getElementById("raw-json").innerText = payload;
+
+      try {
+        const json = JSON.parse(payload);
+
+        
+        if (json.status) {
+          const box = document.getElementById("status-stok");
+          box.innerText = json.status;
+          box.className = "status-box status-" + json.status;
+        }
+
+       
+        if (json.data && Array.isArray(json.data)) {
+          json.data.forEach(item => {
+            if (item.name === "stok") {
+              document.getElementById("val-stok").innerText = item.value;
+            }
+            if (item.name === "jarak") {
+              document.getElementById("val-jarak").innerText = item.value;
+            }
+            if (item.timestamp) {
+              
+              const formattedTime = item.timestamp.replace("T", " ");
+              document.getElementById("val-time").innerText = "Waktu Update: " + formattedTime;
+            }
+          });
+        }
+      } catch (e) {
+        console.error("Gagal parse JSON:", e);
+      }
+    }
+  </script>
+</body>
+</html>
