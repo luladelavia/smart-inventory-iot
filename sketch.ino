@@ -4,20 +4,17 @@
 #include <PubSubClient.h>
 #include <RTClib.h>
 
-// ====== WiFi & MQTT ======
-const char* ssid        = "Wokwi-GUEST";
-const char* password    = "";
-const char* mqtt_server = "broker.hivemq.com";
-const char* mqtt_client = "esp32-stok-dimas-001";   // harus unik
-const char* mqtt_topic  = "gudang/stok/rak1";    // harus unik
+const char* ssid           = "Wokwi-GUEST";
+const char* password       = "";
+const char* mqtt_server    = "broker.hivemq.com";
+const char* mqtt_id_prefix = "esp32-stok-dimas-";
+const char* mqtt_topic     = "gudang/stok/rak1";
 
-// ====== Pin ======
 #define TRIG_PIN 5
 #define ECHO_PIN 18
 #define SDA_PIN  21
 #define SCL_PIN  22
 
-// ====== Kalibrasi (cm) ======
 const float JARAK_PENUH  = 10.0;
 const float JARAK_KOSONG = 30.0;
 const unsigned long INTERVAL_MS = 2000;
@@ -26,9 +23,10 @@ WiFiClient espClient;
 PubSubClient client(espClient);
 RTC_DS1307 rtc;
 unsigned long lastRead = 0;
+String clientId;
 
 void setup_wifi() {
-  WiFi.begin(ssid, password);
+  WiFi.begin(ssid, password, 6);
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
@@ -38,8 +36,15 @@ void setup_wifi() {
 
 void reconnect() {
   while (!client.connected()) {
+    if (WiFi.status() != WL_CONNECTED) {
+      Serial.println("WiFi putus, menyambung ulang...");
+      WiFi.reconnect();
+      delay(1000);
+      continue;
+    }
+
     Serial.print("Connecting MQTT...");
-    if (client.connect(mqtt_client)) {
+    if (client.connect(clientId.c_str())) {
       Serial.println("OK");
     } else {
       Serial.printf("gagal (rc=%d), coba lagi 5 detik\n", client.state());
@@ -58,7 +63,8 @@ float bacaJarakCm() {
 }
 
 float bacaJarakRata(int n = 5) {
-  float total = 0; int valid = 0;
+  float total = 0;
+  int valid = 0;
   for (int i = 0; i < n; i++) {
     float d = bacaJarakCm();
     if (d > 0) { total += d; valid++; }
@@ -87,8 +93,13 @@ void setup() {
   if (!rtc.isrunning()) rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
 
   setup_wifi();
+
+  clientId = String(mqtt_id_prefix) + String((uint32_t)esp_random(), HEX);
+  Serial.println("Client ID: " + clientId);
+
   client.setServer(mqtt_server, 1883);
-  client.setBufferSize(512);   // default 256 byte, kurang untuk JSON ini
+  client.setBufferSize(512);
+  client.setKeepAlive(30);
 }
 
 void loop() {
@@ -99,7 +110,10 @@ void loop() {
   lastRead = millis();
 
   float jarak = bacaJarakRata();
-  if (jarak < 0) { Serial.println("Sensor tidak membaca"); return; }
+  if (jarak < 0) {
+    Serial.println("Sensor tidak membaca");
+    return;
+  }
 
   float persen = (JARAK_KOSONG - jarak) / (JARAK_KOSONG - JARAK_PENUH) * 100.0;
   persen = constrain(persen, 0, 100);
